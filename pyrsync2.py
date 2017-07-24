@@ -45,10 +45,17 @@ __all__ = [
 	"rsyncdelta",
 	"blockchecksums"
 ]
-
-# Used by the system with an unpatched file
-# Receives an input stream and set of checksums for a patched file
-# Returns the set of checksums where the patched and unpatched file don't match
+"""
+Used by the system with an unpatched file
+Receives an input stream and set of checksums for a patched file
+Returns the set of checksums in the form of:
+weak : [(remote_byte, strong), (...)]             <= When a remote block has no local match
+weak : [(remote_byte, strong, local_byte), (...)] <= When a remote block matched a local block
+[
+	3259370527 : [(2432, b'\xb7w\x9d\x1a\x1f\x89b\x84\x06[\xf48\xacl\x8a\xb6', 2427)] <= 
+	2889812746 : [(77, b'\xc8\x83 $\xa0\x1dXKs\x1c\x80\xa2\xdaDgH')]
+]
+"""
 def zsyncdelta(datastream, remotesignatures, blocksize=4096, max_buffer=4096):
 	"""
 	Generates a binary patch when supplied with the weak and strong
@@ -64,18 +71,18 @@ def zsyncdelta(datastream, remotesignatures, blocksize=4096, max_buffer=4096):
 	#	in enumerate(remotesignatures)
 	#}
 	remote_hashes = {}
-	unmatched = []
-	for index, (weak, strong) in enumerate(remotesignatures):
+	num_blocks = 0
+	for block, (weak, strong) in enumerate(remotesignatures):
+		num_blocks += 1
 		if weak in remote_hashes:
-			remote_hashes[weak].append((index, strong))
+			remote_hashes[weak].append((block, strong))
 		else:
-			remote_hashes[weak] = [(index, strong)]
+			remote_hashes[weak] = [(block, strong)]
 
 	match = True
-	matchblock = -1
-	current_block = bytearray()
-	matched = []
-	local_index = -blocksize
+	#matchblock = -1
+	#current_block = bytearray()
+	local_block = -blocksize
 
 	print(remotesignatures)
 
@@ -85,20 +92,21 @@ def zsyncdelta(datastream, remotesignatures, blocksize=4096, max_buffer=4096):
 			# time, populate the window using weakchecksum instead of rolling
 			# through every single byte which takes at least twice as long.
 			window = bytearray(datastream.read(blocksize))
-			local_index += blocksize
+			local_block += blocksize
 			#window_offset = 0
 			checksum, a, b = weakchecksum(window)
 		if checksum in remote_hashes:
 			local_strong = hashlib.md5(window).digest()
-			for remote_index,remote_strong in remote_hashes[checksum]:
+			for index,(remote_block,remote_strong) in enumerate(remote_hashes[checksum]):
 				if local_strong == remote_strong:
 					# Found a matching block
-					remote_hashes[checksum]="I have this at "+str(local_index)+", expect at "+str(remote_index*blocksize)
+					#remote_hashes[checksum][index]="I have this at "+str(local_block)+", expected at "+str(remote_block*blocksize)
+					remote_hashes[checksum][index] = (remote_block, local_strong, local_block)
 
 					match = True
 					#print("Match at "+str(matchblock)+" with "+str(checksum)
 					#	  +" : "+str(remote_hashes[checksum][1])+"=="+str(hashlib.md5(window).digest()))
-					matched.append(matchblock)
+					#matched.append(matchblock)
 					break
 
 			if datastream.closed:
@@ -132,12 +140,12 @@ def zsyncdelta(datastream, remotesignatures, blocksize=4096, max_buffer=4096):
 
 				break
 
-			print("Mismatch (window contains "+str(window)+")")
+			#print("Mismatch (window contains "+str(window)+")")
 			# Yank off the extra byte and calculate the new window checksum
 			# This is maintaining the old contents inside the bytearray, and just adusting the offset
 			oldbyte = window.pop(0) #[window_offset]
 			#window_offset += 1
-			local_index += 1
+			local_block += 1
 			checksum, a, b = rollingchecksum(oldbyte, newbyte, a, b, blocksize)
 
 			#if len(current_block) >= max_buffer:
@@ -150,8 +158,25 @@ def zsyncdelta(datastream, remotesignatures, blocksize=4096, max_buffer=4096):
 
 	#if len(current_block) > 0:
 	#	yield bytes(current_block)
-	for i in remote_hashes:
-		print(str(i)+" : "+str(remote_hashes[i]))
+	return get_instructions(remote_hashes, blocksize, num_blocks)
+
+def get_instructions(remote_hashes, blocksize, num_blocks):
+	instructions = [None] * num_blocks
+	to_request = []
+	for weak in remote_hashes:
+		for block in remote_hashes[weak]:
+			remote_block = block[0]
+			strong = block[1]
+			if len(block) == 2:
+				# Not found
+				instructions[remote_block] = (weak, strong)
+				to_request.append(remote_block)
+			else:
+				# Found
+				local_block = block[2]
+				instructions[remote_block] = (local_block)
+	return instructions, to_request
+
 
 def rsyncdelta(datastream, remotesignatures, blocksize=4096, max_buffer=4096):
 	"""
