@@ -1,34 +1,98 @@
 import pyzsync
+import pyrsync2
 import filecmp
+import unittest
+from datetime import datetime
+import os
 
 unpatched_file = "/home/francisco/loremipsum"
 patched_file = "/home/francisco/loremipsum_modified"
 resulting_file = "/home/francisco/loremipsum_result" # this one gets cleared by the open(...,"wb") call
-blocksize = 32
-with open(unpatched_file, "rb") as unpatched, open(patched_file, "rb") as patched, open(resulting_file, "wb") as result:
-	num,hashes = pyzsync.block_checksums(patched, blocksize=blocksize)
 
-	instructions, to_request = pyzsync.zsync_delta(unpatched, hashes, num, blocksize=blocksize)
-	#print("Instructions for new file:")
-	#for i in instructions:
-	#	print("  "+str(i))
-	#print("I need to request the following blocks:")
-	#for r in to_request:
-	#	print("  "+str(r))
+unpatched_large = "/tmp/unpatched_large"
+patched_large = "/home/francisco/1434065645264.jpg"
+resulting_large = "/tmp/result_large"
 
-	blocks = pyzsync.get_blocks(patched, to_request, blocksize)
-	#print("Obtained blocks:")
-	#for block in blocks:
-	#	print(str(block))
-	instructions = pyzsync.merge_instructions_blocks(instructions, blocks, blocksize)
-	#print("Final instructions:")
-	#for i in instructions:
-	#	print("  "+str(i))
+unpatched_very_large = "/tmp/unpatched_very_large"
+patched_very_large = "/home/francisco/SEL_03.mp4"
+resulting_very_large = "/tmp/result_very_large"
 
-	print("Patching file...")
-	pyzsync.patchstream(unpatched, result, instructions, blocksize)
+def common_zsync(patched_file, unpatched_file, resulting_file, blocksize):
+	with open(unpatched_file, "rb") as unpatched, \
+			open(patched_file, "rb") as patched, \
+			open(resulting_file, "wb") as result:
+		start = datetime.now()
+		num, hashes = pyzsync.block_checksums(patched, blocksize=blocksize)
+		instructions, to_request = pyzsync.zsync_delta(unpatched, hashes, num, blocksize=blocksize)
+		blocks = pyzsync.get_blocks(patched, to_request, blocksize)
+		instructions = pyzsync.merge_instructions_blocks(instructions, blocks, blocksize)
+		pyzsync.patchstream(unpatched, result, instructions, blocksize)
+		duration = datetime.now() - start
+	return duration
 
-if filecmp.cmp(patched_file, resulting_file, shallow=False):
-	print("pyzsync works")
-else:
-	print("pyzsync sucks")
+def common_rsync(patched_file, unpatched_file, resulting_file, blocksize):
+	with open(unpatched_file, "rb") as unpatched, \
+			open(patched_file, "rb") as patched, \
+			open(resulting_file, "wb") as result:
+		start = datetime.now()
+		hashes = pyrsync2.blockchecksums(unpatched, blocksize)
+		delta = pyrsync2.rsyncdelta(patched, hashes, blocksize)
+		pyrsync2.patchstream(unpatched, result, delta, blocksize)
+		duration = datetime.now() - start
+	return duration
+
+
+class PyZsyncTests(unittest.TestCase):
+	def setUp(self):
+		with open(unpatched_large, "wb"), \
+				open(resulting_large, "wb"),\
+				open(unpatched_very_large, "wb"),\
+				open(resulting_very_large, "wb"):
+			pass
+
+	def tearDown(self):
+		os.remove(unpatched_large)
+		os.remove(resulting_large)
+		os.remove(unpatched_very_large)
+		os.remove(resulting_very_large)
+
+	def testSimplePatch(self):
+		blocksize = 32
+		common_zsync(patched_file, unpatched_file, resulting_file, blocksize)
+		self.assertTrue(filecmp.cmp(patched_file, resulting_file, shallow=False))
+
+	def testLargePatch(self):
+		filesize = os.path.getsize(patched_large)
+		blocksize = 4096
+
+		self.assertFalse(filecmp.cmp(patched_large, resulting_large, shallow=False))
+		duration_zsync = common_zsync(patched_large, unpatched_large, resulting_large, blocksize)
+		self.assertTrue(filecmp.cmp(patched_large, resulting_large, shallow=False))
+
+		self.setUp()
+		self.assertFalse(filecmp.cmp(patched_large, resulting_large, shallow=False))
+		duration_rsync = common_rsync(patched_large, unpatched_large, resulting_large, blocksize)
+		self.assertTrue(filecmp.cmp(patched_large, resulting_large, shallow=False))
+
+		print(str(filesize) + "B: Zsync took " + str(duration_zsync) + " seconds, while Rsync took " + str(
+			duration_rsync) + " seconds")
+
+	def testVeryLargePatch(self):
+		filesize = os.path.getsize(patched_very_large)
+		blocksize = 4096
+
+		self.assertFalse(filecmp.cmp(patched_very_large, resulting_very_large, shallow=False))
+		duration_zsync = common_zsync(patched_very_large, unpatched_very_large, resulting_very_large, blocksize)
+		self.assertTrue(filecmp.cmp(patched_very_large, resulting_very_large, shallow=False))
+
+		self.setUp()
+		self.assertFalse(filecmp.cmp(patched_very_large, resulting_very_large, shallow=False))
+		duration_rsync = common_rsync(patched_very_large, unpatched_very_large, resulting_very_large, blocksize)
+		self.assertTrue(filecmp.cmp(patched_very_large, resulting_very_large, shallow=False))
+
+		print(str(filesize) + "B: Zsync took " + str(duration_zsync) + " seconds, while Rsync took " + str(
+			duration_rsync) + " seconds")
+
+
+if __name__ == "__main__":
+	unittest.main()
