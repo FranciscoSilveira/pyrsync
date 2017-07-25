@@ -1,4 +1,0 @@
-===============================
-#pyzsync
-===============================
-This is a fork of the `pyrsync2` package with the intention of implementing the zsync algorithm based on its code.
