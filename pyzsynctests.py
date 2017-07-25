@@ -6,9 +6,9 @@ patched_file = "/home/francisco/loremipsum_modified"
 resulting_file = "/home/francisco/loremipsum_result" # this one gets cleared by the open(...,"wb") call
 blocksize = 32
 with open(unpatched_file, "rb") as unpatched, open(patched_file, "rb") as patched, open(resulting_file, "wb") as result:
-	hashes = pyzsync.block_checksums(patched, blocksize=blocksize)
+	num,hashes = pyzsync.block_checksums(patched, blocksize=blocksize)
 
-	instructions, to_request = pyzsync.zsync_delta(unpatched, hashes, blocksize=blocksize)
+	instructions, to_request = pyzsync.zsync_delta(unpatched, hashes, num, blocksize=blocksize)
 	#print("Instructions for new file:")
 	#for i in instructions:
 	#	print("  "+str(i))

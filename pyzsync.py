@@ -16,15 +16,15 @@ Example:
 """
 DEFAULT_BLOCKSIZE = 4096
 
-def zsync_delta(datastream, remotesignatures, blocksize=DEFAULT_BLOCKSIZE):
-	remote_hashes = {}
-	num_blocks = 0
-	for block, (weak, strong) in enumerate(remotesignatures):
-		num_blocks += 1
-		if weak in remote_hashes:
-			remote_hashes[weak].append((block, strong))
-		else:
-			remote_hashes[weak] = [(block, strong)]
+def zsync_delta(datastream, remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSIZE):
+	# remote_hashes = {}
+	# num_blocks = 0
+	# for block, (weak, strong) in enumerate(remotesignatures):
+	# 	num_blocks += 1
+	# 	if weak in remote_hashes:
+	# 		remote_hashes[weak].append((block, strong))
+	# 	else:
+	# 		remote_hashes[weak] = [(block, strong)]
 
 	match = True
 	local_offset = -blocksize
@@ -103,11 +103,22 @@ def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
 	Generator of (weak hash (int), strong hash(bytes)) tuples
 	for each block of the defined size for the given data stream.
 	"""
+	hashes = {}
 	read = instream.read(blocksize)
+	num_blocks = 0
 
 	while read:
-		yield (weakchecksum(read)[0], hashlib.md5(read).digest())
+		weak = weakchecksum(read)[0]
+		strong = hashlib.md5(read).digest()
+		if weak in hashes:
+			hashes[weak].append((num_blocks, strong))
+		else:
+			hashes[weak] = [(num_blocks, strong)]
+		#yield (weakchecksum(read)[0], hashlib.md5(read).digest())
+		num_blocks += 1
 		read = instream.read(blocksize)
+
+	return num_blocks,hashes
 
 def rollingchecksum(removed, new, a, b, blocksize=DEFAULT_BLOCKSIZE):
 	"""

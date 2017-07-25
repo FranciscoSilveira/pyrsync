@@ -10,15 +10,15 @@ def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
 setup(
-    name='pyrsync2',
-    version='0.2.6',
-    description='''A Python 3 module which implements rsync binary diff
-    algorithm.''',
-    long_description=read('README'),
-    author='Georgy Angelov, Eric Pruitt, Isis Lovecruft',
-    author_email='georgyangelov@gmail.com',
-    url='https://github.com/stormbreakerbg/pyrsync',
-    py_modules=['pyrsync2'],
+    name='pyzsync',
+    version='0.1',
+    description='''A Python 3 module which implements the zsync binary
+    diff algorithm.''',
+    #long_description=read('README'),
+    author='Francisco Silveira, Georgy Angelov, Eric Pruitt, Isis Lovecruft',
+    author_email='franciscosilveira463@gmail.com',
+    url='https://github.com/FranciscoSilveira/pyzsync',
+    py_modules=['pyzsync'],
     license=['MIT'],
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -34,7 +34,7 @@ setup(
         'Topic :: System :: Archiving',
         'Topic :: System :: Archiving :: Backup',
         'Topic :: System :: Archiving :: Compression', ],
-    packages=['pyrsync2'],
-    package_dir={'pyrsync2': ''},
+    packages=['pyzsync'],
+    package_dir={'pyzsync': ''},
     package_data={'': ['README\.md']},
 )
