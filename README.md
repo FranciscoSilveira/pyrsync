@@ -5,7 +5,7 @@ This is a fork of the `pyrsync2` package with the intention of implementing the 
 
 A lot of the work done here, and certainly the hardest one, comes from [Georgy Angelov's](https://github.com/georgyangelov/pyrsync) and [Eric Pruitt's](http://code.activestate.com/recipes/577518-rsync-algorithm/) excellent work on pyrsync. I adapted their work to implement zsync, as described here.
 
-##Theory
+## Theory
 ### Rsync vs Zsync
 Zsync differs from rsync in the delegation of tasks. Let's assume B just modified their file and A needs to modify their version accordingly. Rsync works somewhat like this:
 
