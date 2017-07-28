@@ -22,8 +22,22 @@ blocks = pyzsync.get_blocks(patched, to_request)
 ```
 Patch the file:
 ```
-instructions = pyzsync.merge_instructions_blocks(instructions, blocks)
-pyzsync.patchstream(unpatched, result, instructions)
+with open(unpatched_file, "rb") as unpatched, open(resulting_file, "wb") as result:
+    pyzsync.easy_patch(unpatched, result, instructions, blocks, blocksize)
+```
+The easy_patch function doesn't force you to have the entire block list from the patched file.
+The first call should have the full "instructions" list, regardless of whether "blocks" is None, full or partial.
+Subsequent calls should have Instructions as None and a full or partial "blocks"
+This is useful if you're sending over large files. This way, not only can you start working on a part right away
+before the others arrive, you also don't have to keep all the blocks in memory until they all arrive.
+Example where blocks is a big list dividided in 2 parts:
+```
+with open(unpatched_file, "rb") as unpatched, open(resulting_file, "wb") as result:
+    pyzsync.easy_patch(unpatched, result, instructions, None, blocksize)
+    # Received blocks part 1 from remote
+    pyzsync.easy_patch(unpatched, result, None, blocks1, blocksize)
+    # Later receive blocks part 2
+    pyzsync.easy_patch(unpatched, result, None, blocks2, blocksize)
 ```
 
 ## Theory

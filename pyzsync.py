@@ -43,6 +43,7 @@ def zsync_delta(datastream, remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSI
 			for index,(remote_offset,remote_strong) in enumerate(remote_hashes[checksum]):
 				if local_strong == remote_strong:
 					# Found a matching block, insert the local file's byte offset in the results
+					#print("Found block #"+str(remote_offset)+" at offset "+str(local_offset))
 					remote_hashes[checksum][index] = (remote_offset, local_strong, local_offset)
 					match = True
 					# Don't try to match any other blocks with this one
@@ -86,6 +87,7 @@ def get_instructions(remote_hashes, blocksize, num_blocks):
 	to_request = []
 	for weak in remote_hashes:
 		for block in remote_hashes[weak]:
+			#print(str(block))
 			remote_block = block[0]
 			strong = block[1]
 			if len(block) == 2:
@@ -132,11 +134,12 @@ def rollingchecksum(removed, new, a, b, blocksize=DEFAULT_BLOCKSIZE):
 
 def get_blocks(datastream, requests, blocksize=DEFAULT_BLOCKSIZE):
 	#blocks = []
-	for block in requests:
-		datastream.seek(block*blocksize)
+	for index in requests:
+		offset = index*blocksize
+		datastream.seek(offset)
 		content = datastream.read(blocksize)
 		#blocks.append((offset, block))
-		yield (block, content)
+		yield (offset, content)
 
 def merge_instructions_blocks(instructions, blocks, blocksize=DEFAULT_BLOCKSIZE):
 	for (block, content) in blocks:
@@ -145,12 +148,31 @@ def merge_instructions_blocks(instructions, blocks, blocksize=DEFAULT_BLOCKSIZE)
 			instructions[block] = content
 	return instructions
 
+"""
+This version of the patching functionality doesn't require that the full
+remote blocklist is present, only the local blocklist has to be either
+complete or None
+"""
+def easy_patch(instream, outstream, local_blocks, remote_blocks, blocksize=DEFAULT_BLOCKSIZE):
+	for element in local_blocks:
+		#print(str(block))
+		if isinstance(element, int) and blocksize:
+			instream.seek(element)
+			block = instream.read(blocksize)
+			outstream.write(block)
+		else:
+			outstream.seek(blocksize, 1) # Important to seek from current position (advance)
+	#print("I have "+str(len(remote_blocks))+" remote blocks")
+	for index,block in remote_blocks:
+		if isinstance(index, int) and isinstance(block, bytes):
+			outstream.seek(index)
+			outstream.write(block)
+
 def patchstream(instream, outstream, delta, blocksize=DEFAULT_BLOCKSIZE):
 	"""
 	Patches instream using the supplied delta and write the resulting
 	data to outstream.
 	"""
-
 	for element in delta:
 		if isinstance(element, int) and blocksize:
 			instream.seek(element)

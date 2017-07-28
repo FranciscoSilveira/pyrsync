@@ -17,7 +17,7 @@ unpatched_very_large = "/tmp/unpatched_very_large"
 patched_very_large = "/home/francisco/SEL_03.mp4"
 resulting_very_large = "/tmp/result_very_large"
 
-def common_zsync(patched_file, unpatched_file, resulting_file, blocksize):
+def common_zsync_old(patched_file, unpatched_file, resulting_file, blocksize):
 	with open(unpatched_file, "rb") as unpatched, \
 			open(patched_file, "rb") as patched, \
 			open(resulting_file, "wb") as result:
@@ -27,6 +27,18 @@ def common_zsync(patched_file, unpatched_file, resulting_file, blocksize):
 		blocks = pyzsync.get_blocks(patched, to_request, blocksize)
 		instructions = pyzsync.merge_instructions_blocks(instructions, blocks, blocksize)
 		pyzsync.patchstream(unpatched, result, instructions, blocksize)
+		duration = datetime.now() - start
+	return duration
+
+def common_zsync(patched_file, unpatched_file, resulting_file, blocksize):
+	with open(unpatched_file, "rb") as unpatched, \
+			open(patched_file, "rb") as patched, \
+			open(resulting_file, "wb") as result:
+		start = datetime.now()
+		num, hashes = pyzsync.block_checksums(patched, blocksize=blocksize)
+		instructions, to_request = pyzsync.zsync_delta(unpatched, hashes, num, blocksize=blocksize)
+		blocks = pyzsync.get_blocks(patched, to_request, blocksize)
+		pyzsync.easy_patch(unpatched, result, instructions, blocks, blocksize)
 		duration = datetime.now() - start
 	return duration
 
@@ -68,7 +80,6 @@ class PyZsyncTests(unittest.TestCase):
 		self.assertFalse(filecmp.cmp(patched_large, resulting_large, shallow=False))
 		duration_zsync = common_zsync(patched_large, unpatched_large, resulting_large, blocksize)
 		self.assertTrue(filecmp.cmp(patched_large, resulting_large, shallow=False))
-
 		self.tearDown()
 		self.setUp()
 
@@ -80,7 +91,6 @@ class PyZsyncTests(unittest.TestCase):
 			duration_rsync) + " seconds")
 
 	def testVeryLargePatch(self):
-		return
 		filesize = os.path.getsize(patched_very_large)
 		blocksize = 4096
 
