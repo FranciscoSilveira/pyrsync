@@ -19,7 +19,7 @@ setup(
     author_email='franciscosilveira463@gmail.com',
     url='https://github.com/FranciscoSilveira/pyzsync',
     py_modules=['pyzsync'],
-    license=['MIT'],
+    license=['Unlicense'],
     classifiers=[
         'Development Status :: 4 - Beta',
         'Environment :: Console',
@@ -27,7 +27,7 @@ setup(
         'Environment :: Win32 (MS Windows)',
         'Intended Audience :: Developers',
         'Intended Audience :: End Users/Desktop',
-        'License :: OSI Approved :: MIT License',
+        'License :: Unlicense',
         'Programming Language :: Python',
         'Topic :: Security :: Cryptography',
         'Topic :: Software Development :: Libraries :: Python Modules',
