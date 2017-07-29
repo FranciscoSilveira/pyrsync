@@ -11,7 +11,7 @@ def read(fname):
 
 setup(
     name='pyzsync',
-    version='0.1',
+    version='0.2',
     description='''A Python 3 module which implements the zsync binary
     diff algorithm.''',
     #long_description=read('README'),

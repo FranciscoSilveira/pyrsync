@@ -90,6 +90,16 @@ class PyZsyncTests(unittest.TestCase):
 		print(str(filesize) + "B: Zsync took " + str(duration_zsync) + " seconds, while Rsync took " + str(
 			duration_rsync) + " seconds")
 
+	def testLargePatchSeveralBlocksizes(self):
+		blocksizes = [ 2**i for i in range(3,21) ]
+		durations = []
+		for blocksize in blocksizes:
+			duration = common_zsync(patched_large, unpatched_large, resulting_large, blocksize)
+			self.assertTrue(filecmp.cmp(patched_large, resulting_large, shallow=False))
+			durations.append((blocksize,duration))
+		for b,d in durations:
+			print("Blocksize "+str(b)+" : "+str(d))
+
 	def testVeryLargePatch(self):
 		filesize = os.path.getsize(patched_very_large)
 		blocksize = 4096
