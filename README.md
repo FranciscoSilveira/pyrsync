@@ -65,6 +65,7 @@ You could argue for a rsync optimization where you could just calculate the miss
 
 I did a quick test with several blocksizes, from 8B to 1M.
 Anything below 8B didn't work at all, and I didn't bother to find out why because I wouldn't use that anyway.
+```
 Blocksize 8 : 0:00:04.076282
 Blocksize 16 : 0:00:02.119228
 Blocksize 32 : 0:00:01.291154
@@ -83,3 +84,4 @@ Blocksize 131072 : 0:00:00.625354
 Blocksize 262144 : 0:00:00.696357
 Blocksize 524288 : 0:00:00.698318
 Blocksize 1048576 : 0:00:00.722758
+```
