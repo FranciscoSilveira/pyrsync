@@ -9,21 +9,25 @@ A lot of the work done here, and certainly the hardest one, comes from [Georgy A
 Obtain hashlist for patched file:
 ```
 with open(patched_file, "rb") as patched:
-	hashes = pyzsync.block_checksums(patched)
+	num, hashes = pyzsync.block_checksums(patched)
 ```
 Find which blocks are missing on the unpatched file:
 ```
 with open(unpatched_file, "rb") as unpatched:
-	instructions, request = pyzsync.zsync_delta(unpatched, hashes)
+	delta = pyzsync.zsync_delta(unpatched, hashes)
+```
+Obtain a blueprint from that delta:
+```
+instructions,missing = pyzsync.get_blueprint(delta, num)
 ```
 Obtain the missing blocks from the patched file:
 ```
-blocks = pyzsync.get_blocks(patched, to_request)
+blocks = pyzsync.get_blocks(patched, missing)
 ```
 Patch the file:
 ```
 with open(unpatched_file, "rb") as unpatched, open(resulting_file, "wb") as result:
-    pyzsync.easy_patch(unpatched, result, instructions, blocks, blocksize)
+    pyzsync.easy_patch(unpatched, result, instructions, blocks)
 ```
 The easy_patch function doesn't force you to have the entire block list from the patched file.
 The first call should have the full "instructions" list, regardless of whether "blocks" is None, full or partial.
