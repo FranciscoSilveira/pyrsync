@@ -8,6 +8,7 @@ Returns a dictionary of checksums in the form of:
 	weak : [(remote_byte, strong), (...)]             <= When a remote block has no local match
 	weak : [(remote_byte, strong, local_byte), (...)] <= When a remote block matched a local block
 }
+
 Example:
 {
 	3259370527 : [(2432, b'\xb7w\x9d\x1a\x1f\x89b\x84\x06[\xf48\xacl\x8a\xb6', 2427)]
@@ -16,16 +17,7 @@ Example:
 """
 DEFAULT_BLOCKSIZE = 4096
 
-def zsync_delta(datastream, remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSIZE):
-	# remote_hashes = {}
-	# num_blocks = 0
-	# for block, (weak, strong) in enumerate(remotesignatures):
-	# 	num_blocks += 1
-	# 	if weak in remote_hashes:
-	# 		remote_hashes[weak].append((block, strong))
-	# 	else:
-	# 		remote_hashes[weak] = [(block, strong)]
-
+def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
 	match = True
 	local_offset = -blocksize
 
@@ -37,6 +29,9 @@ def zsync_delta(datastream, remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSI
 			window = bytearray(datastream.read(blocksize))
 			local_offset += blocksize
 			checksum, a, b = weakchecksum(window)
+		
+		match = False
+		
 		if checksum in remote_hashes:
 			# Matched the weak hash
 			local_strong = hashlib.md5(window).digest()
@@ -52,9 +47,9 @@ def zsync_delta(datastream, remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSI
 			if datastream.closed:
 				break
 
-		else:
+		if not match:
 			# The weakchecksum (or the strong one) did not match
-			match = False
+			
 			try:
 				if datastream:
 					# Get the next byte and affix to the window
@@ -78,13 +73,19 @@ def zsync_delta(datastream, remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSI
 			oldbyte = window.pop(0)
 			local_offset += 1
 			checksum, a, b = rollingchecksum(oldbyte, newbyte, a, b, blocksize)
-
+	
 	# Order the results into a proper blueprint+requestlist tuple and return it
-	return get_instructions(remote_hashes, blocksize, num_blocks)
+	#return get_instructions(remote_hashes, num_blocks, blocksize)
+	return remote_hashes
 
-def get_instructions(remote_hashes, blocksize, num_blocks):
+"""
+Receives a dictionary of checksums like the output of zsync_delta
+Returns a list that represents a blueprint for patching the file and a list of block indexes missing (the output of get_instructions):
+
+"""
+def get_blueprint(remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSIZE):
 	instructions = [None] * num_blocks
-	to_request = []
+	missing = []
 	for weak in remote_hashes:
 		for block in remote_hashes[weak]:
 			#print(str(block))
@@ -92,13 +93,13 @@ def get_instructions(remote_hashes, blocksize, num_blocks):
 			strong = block[1]
 			if len(block) == 2:
 				# Not found
-				instructions[remote_block] = (remote_block*blocksize, weak, strong)
-				to_request.append(remote_block)
+				instructions[remote_block] = (remote_block, weak, strong)
+				missing.append(remote_block)
 			else:
 				# Found
 				local_block = block[2]
 				instructions[remote_block] = local_block
-	return instructions, to_request
+	return instructions, missing
 
 def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
 	"""
@@ -107,20 +108,20 @@ def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
 	"""
 	hashes = {}
 	read = instream.read(blocksize)
-	num_blocks = 0
+	index = 0
 
 	while read:
 		weak = weakchecksum(read)[0]
 		strong = hashlib.md5(read).digest()
 		if weak in hashes:
-			hashes[weak].append((num_blocks, strong))
+			hashes[weak].append((index, strong))
 		else:
-			hashes[weak] = [(num_blocks, strong)]
+			hashes[weak] = [(index, strong)]
 		#yield (weakchecksum(read)[0], hashlib.md5(read).digest())
-		num_blocks += 1
+		index += 1
 		read = instream.read(blocksize)
 
-	return num_blocks,hashes
+	return index,hashes
 
 def rollingchecksum(removed, new, a, b, blocksize=DEFAULT_BLOCKSIZE):
 	"""
@@ -139,7 +140,7 @@ def get_blocks(datastream, requests, blocksize=DEFAULT_BLOCKSIZE):
 		datastream.seek(offset)
 		content = datastream.read(blocksize)
 		#blocks.append((offset, block))
-		yield (offset, content)
+		yield (index, content)
 
 def merge_instructions_blocks(instructions, blocks, blocksize=DEFAULT_BLOCKSIZE):
 	for (block, content) in blocks:
@@ -165,7 +166,7 @@ def easy_patch(instream, outstream, local_blocks, remote_blocks, blocksize=DEFAU
 	#print("I have "+str(len(remote_blocks))+" remote blocks")
 	for index,block in remote_blocks:
 		if isinstance(index, int) and isinstance(block, bytes):
-			outstream.seek(index)
+			outstream.seek(index*blocksize)
 			outstream.write(block)
 
 def patchstream(instream, outstream, delta, blocksize=DEFAULT_BLOCKSIZE):

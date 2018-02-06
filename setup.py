@@ -1,8 +1,8 @@
 import os
 from sys import version
 
-from distutils.core import setup
-
+#from distutils.core import setup
+from setuptools import setup
 
 # Utility function to read the README.md file from main directory, used for
 # the long_description.
@@ -27,8 +27,8 @@ setup(
         'Environment :: Win32 (MS Windows)',
         'Intended Audience :: Developers',
         'Intended Audience :: End Users/Desktop',
-        'License :: Unlicense',
-        'Programming Language :: Python',
+        'License :: Public Domain',
+        'Programming Language :: Python :: 3',
         'Topic :: Security :: Cryptography',
         'Topic :: Software Development :: Libraries :: Python Modules',
         'Topic :: System :: Archiving',
@@ -37,4 +37,5 @@ setup(
     packages=['pyzsync'],
     package_dir={'pyzsync': ''},
     package_data={'': ['README\.md']},
+    python_requires='>=3'
 )
