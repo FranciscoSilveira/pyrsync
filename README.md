@@ -1,34 +1,43 @@
 ===============================
 #pyzsync
 ===============================
-This is a fork of the `pyrsync2` package with the intention of implementing the zsync algorithm based on its code.
+This is a fork of the `pyrsync2` package with the intention of implementing the [zsync](http://zsync.moria.org.uk/) algorithm based on its code using asynchronous file access.
 
-A lot of the work done here, and certainly the hardest one, comes from [Georgy Angelov's](https://github.com/georgyangelov/pyrsync) and [Eric Pruitt's](http://code.activestate.com/recipes/577518-rsync-algorithm/) excellent work on pyrsync. I adapted their work to implement zsync, as described here.
+A lot of the work done here, and certainly the hardest one, comes from [Georgy Angelov's](https://github.com/georgyangelov/pyrsync) and [Eric Pruitt's](http://code.activestate.com/recipes/577518-rsync-algorithm/) excellent work on pyrsync. I adapted their work to implement zsync with asyncio.
+## Requirements
+The only dependencies are `hashlib` for generating the strong hash (MD5) and `aiofiles`, a library that provides non-blocking file I/O using asyncio which you can get from pip:
+```
+$ pip install aiofiles
+```
 
 ## Usage
 Obtain hashlist for patched file:
 ```
-with open(patched_file, "rb") as patched:
-	num, hashes = pyzsync.block_checksums(patched)
+async with aiofiles.open(patched_file, "rb") as patched:
+	num, hashes = await pyzsync.block_checksums(patched)
 ```
 Find which blocks are missing on the unpatched file:
 ```
-with open(unpatched_file, "rb") as unpatched:
-	delta = pyzsync.zsync_delta(unpatched, hashes)
+async with aiofiles.open(unpatched_file, "rb") as unpatched:
+	delta = await pyzsync.zsync_delta(unpatched, hashes)
 ```
 Obtain a blueprint from that delta:
 ```
 instructions,missing = pyzsync.get_blueprint(delta, num)
 ```
+**From here on out there is blocking I/O, I'm working on it**
 Obtain the missing blocks from the patched file:
 ```
-blocks = pyzsync.get_blocks(patched, missing)
+with open(patched_file, "rb") as patched:
+	blocks = pyzsync.get_blocks(patched, missing)
 ```
 Patch the file:
 ```
 with open(unpatched_file, "rb") as unpatched, open(resulting_file, "wb") as result:
     pyzsync.easy_patch(unpatched, result, instructions, blocks)
 ```
+
+### Partial patches
 The easy_patch function doesn't force you to have the entire block list from the patched file.
 The first call should have the full "instructions" list, regardless of whether "blocks" is None, full or partial.
 Subsequent calls should have Instructions as None and a full or partial "blocks"
@@ -43,6 +52,9 @@ with open(unpatched_file, "rb") as unpatched, open(resulting_file, "wb") as resu
     # Later receive blocks part 2
     pyzsync.easy_patch(unpatched, result, None, blocks2, blocksize)
 ```
+
+## Testing
+The current test suite included `pyzsync_tests.py` hasn't been updated for asyncio, but the `simple_test.py` should work fine.
 
 ## Theory
 ### Rsync vs Zsync

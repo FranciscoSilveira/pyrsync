@@ -17,7 +17,7 @@ Example:
 """
 DEFAULT_BLOCKSIZE = 4096
 
-def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
+async def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
 	match = True
 	local_offset = -blocksize
 
@@ -26,7 +26,7 @@ def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
 			# Whenever there is a match or the loop is running for the first
 			# time, populate the window using weakchecksum instead of rolling
 			# through every single byte which takes at least twice as long.
-			window = bytearray(datastream.read(blocksize))
+			window = bytearray(await datastream.read(blocksize))
 			local_offset += blocksize
 			checksum, a, b = weakchecksum(window)
 		
@@ -53,14 +53,15 @@ def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
 			try:
 				if datastream:
 					# Get the next byte and affix to the window
-					newbyte = ord(datastream.read(1))
+					next = await datastream.read(1)
+					newbyte = ord(next)
 					window.append(newbyte)
 			except TypeError:
 				# No more data from the file; the window will slowly shrink.
 				# newbyte needs to be zero from here on to keep the checksum
 				# correct.
 				newbyte = 0
-				tailsize = datastream.tell() % blocksize
+				tailsize = await datastream.tell() % blocksize
 				datastream = None
 
 			if datastream is None and len(window) <= tailsize:
@@ -101,13 +102,13 @@ def get_blueprint(remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSIZE):
 				instructions[remote_block] = local_block
 	return instructions, missing
 
-def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
+async def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
 	"""
 	Generator of (weak hash (int), strong hash(bytes)) tuples
 	for each block of the defined size for the given data stream.
 	"""
 	hashes = {}
-	read = instream.read(blocksize)
+	read = await instream.read(blocksize)
 	index = 0
 
 	while read:
@@ -119,7 +120,7 @@ def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
 			hashes[weak] = [(index, strong)]
 		#yield (weakchecksum(read)[0], hashlib.md5(read).digest())
 		index += 1
-		read = instream.read(blocksize)
+		read = await instream.read(blocksize)
 
 	return index,hashes
 
@@ -155,19 +156,21 @@ remote blocklist is present, only the local blocklist has to be either
 complete or None
 """
 def easy_patch(instream, outstream, local_blocks, remote_blocks, blocksize=DEFAULT_BLOCKSIZE):
-	for element in local_blocks:
-		#print(str(block))
-		if isinstance(element, int) and blocksize:
-			instream.seek(element)
-			block = instream.read(blocksize)
-			outstream.write(block)
-		else:
-			outstream.seek(blocksize, 1) # Important to seek from current position (advance)
+	if local_blocks:
+		for element in local_blocks:
+			#print(str(block))
+			if isinstance(element, int) and blocksize:
+				instream.seek(element)
+				block = instream.read(blocksize)
+				outstream.write(block)
+			else:
+				outstream.seek(blocksize, 1) # Important to seek from current position (advance)
 	#print("I have "+str(len(remote_blocks))+" remote blocks")
-	for index,block in remote_blocks:
-		if isinstance(index, int) and isinstance(block, bytes):
-			outstream.seek(index*blocksize)
-			outstream.write(block)
+	if remote_blocks:
+		for index,block in remote_blocks:
+			if isinstance(index, int) and isinstance(block, bytes):
+				outstream.seek(index*blocksize)
+				outstream.write(block)
 
 def patchstream(instream, outstream, delta, blocksize=DEFAULT_BLOCKSIZE):
 	"""
