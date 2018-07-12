@@ -3,7 +3,7 @@
 ===============================
 This is a fork of the `pyrsync2` package with the intention of implementing the [zsync](http://zsync.moria.org.uk/) algorithm based on its code using asynchronous file access.
 
-A lot of the work done here, and certainly the hardest one, comes from [Georgy Angelov's](https://github.com/georgyangelov/pyrsync) and [Eric Pruitt's](http://code.activestate.com/recipes/577518-rsync-algorithm/) excellent work on pyrsync. I adapted their work to implement zsync with asyncio.
+A lot of the work done here, and certainly the hardest one, comes from [Georgy Angelov's](https://github.com/georgyangelov/pyrsync) and [Eric Pruitt's](http://code.activestate.com/recipes/577518-rsync-algorithm/) excellent work on pyrsync. I adapted their work to implement zsync with asyncio. Also Mark Adler, creator of the [Adler32 checksum algorithm](https://en.wikipedia.org/wiki/Adler-32) who's online documentation was essential.
 ## Requirements
 The only dependencies are `hashlib` for generating the strong hash (MD5) and `aiofiles`, a library that provides non-blocking file I/O using asyncio which you can get from pip:
 ```
