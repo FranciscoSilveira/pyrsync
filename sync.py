@@ -1,5 +1,4 @@
-import hashlib
-import checksum
+from zsync_hashing import adler32, adler32_roll, stronghash
 
 """
 Used by the system with an unpatched file upon receiving a hash blueprint of the patched file
@@ -30,14 +29,15 @@ def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
 			# through every single byte which takes at least twice as long.
 			window = bytearray(datastream.read(blocksize))
 			local_offset += blocksize
-			checksum, a, b = adler32(window)
+			checksum = adler32(window)
 		
 		match = False
 		
 		if checksum in remote_hashes:
 			# Matched the weak hash
 			local_strong = stronghash(window).digest()
-			for index,(remote_offset,remote_strong) in enumerate(remote_hashes[checksum]):
+			print(str(remote_hashes[checksum]))
+			for index,(remote_offset,remote_strong,*local_offsets) in enumerate(remote_hashes[checksum]):
 				if local_strong == remote_strong:
 					# Found a matching block, insert the local file's byte offset in the results
 					#print("Found block #"+str(remote_offset)+" at offset "+str(local_offset))
@@ -74,7 +74,7 @@ def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
 			# This is maintaining the old contents inside the bytearray, and just adusting the offset
 			oldbyte = window.pop(0)
 			local_offset += 1
-			checksum, a, b = rollingchecksum(oldbyte, newbyte, a, b, blocksize)
+			checksum = adler32_roll(checksum, oldbyte, newbyte, blocksize)
 	
 	# Order the results into a proper blueprint+requestlist tuple and return it
 	#return get_instructions(remote_hashes, num_blocks, blocksize)
@@ -103,6 +103,10 @@ def get_blueprint(remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSIZE):
 				instructions[remote_block] = local_block
 	return instructions, missing
 
+"""
+Receives a readable stream
+Returns a dictionary of weakhash : (stronghash, [indexes])
+"""
 def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
 	"""
 	Generator of (weak hash (int), strong hash(bytes)) tuples
@@ -113,13 +117,12 @@ def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
 	index = 0
 
 	while read:
-		weak = adler32(read)[0]
-		strong = hashlib.md5(read).digest()
+		weak = adler32(read)
+		strong = stronghash(read).digest()
 		if weak in hashes:
 			hashes[weak].append((index, strong))
 		else:
 			hashes[weak] = [(index, strong)]
-		#yield (weakchecksum(read)[0], hashlib.md5(read).digest())
 		index += 1
 		read = instream.read(blocksize)
 
