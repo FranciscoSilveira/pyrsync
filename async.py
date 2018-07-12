@@ -11,8 +11,8 @@ Returns a dictionary of checksums in the form of:
 
 Example:
 {
-	3259370527 : [(2432, b'\xb7w\x9d\x1a\x1f\x89b\x84\x06[\xf48\xacl\x8a\xb6', 2427)]
-	2889812746 : [(77, b'\xc8\x83 $\xa0\x1dXKs\x1c\x80\xa2\xdaDgH')] 
+	824247642 : {b'\x8a\xb5+|\xc1\xf0\x8bB\xcc\xe1\xddP\xdb\xde\xb1Y': 1680}
+	848365122 : {b'\xa8g\xa5\x16\xe5\xd7\x81\xf3\x11\xaa\x1b\xb5\x8f\xc9\xa2K': (2320, [23, 2548])}
 }
 """
 DEFAULT_BLOCKSIZE = 4096

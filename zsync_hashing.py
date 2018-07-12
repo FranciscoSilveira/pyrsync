@@ -2,7 +2,7 @@ import hashlib
 import zlib
 
 stronghash = hashlib.md5
-_prime_mod = 65521
+_PRIME_MOD = 65521
 
 """
 Receives the unsigned integers "checksum", "removed" and "added", as well as a blocksize
@@ -11,8 +11,8 @@ Generates the Adler-32 checksum for the new value using the old checksum, the re
 def adler32_roll(checksum, removed, added, blocksize):
 	a = checksum & 0xffff
 	b = (checksum >> 16) & 0xffff
-	a += added - removed % _prime_mod
-	b += a - 1 - (removed * blocksize) % _prime_mod
+	a += added - removed % _PRIME_MOD
+	b += a - 1 - (removed * blocksize) % _PRIME_MOD
 	return (b << 16) | a #, a, b
 
 """

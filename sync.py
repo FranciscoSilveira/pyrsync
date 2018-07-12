@@ -1,24 +1,64 @@
 from zsync_hashing import adler32, adler32_roll, stronghash
 
+_DEFAULT_BLOCKSIZE = 4096
+
+
+"""
+Receives a readable stream
+Returns a dictionary of dictionaries, like so:
+	{ weakhash : {
+		stronghash1 : index1,
+		stronghash2 : index2
+		}
+	}
+Consider that a weakhash can have several matching stronghashes, and every
+weakhash,stronghash pair can occur on several indexes of the file,
+but we only need one index for retrieving that block
+"""
+def block_checksums(instream, blocksize=_DEFAULT_BLOCKSIZE):
+	"""
+	Generator of (weak hash (int), strong hash(bytes)) tuples
+	for each block of the defined size for the given data stream.
+	"""
+	hashes = {}
+	read = instream.read(blocksize)
+	index = 0
+
+	while read:
+		weak = adler32(read)
+		strong = stronghash(read).digest()
+		if weak in hashes:
+			if strong in hashes[weak]:
+				hashes[weak][strong].append(index)
+			else:
+				hashes[weak][strong] = [ index ]
+		else:
+			hashes[weak] = {}
+			hashes[weak][strong] = [ index ]
+		index += 1
+		read = instream.read(blocksize)
+
+	return index,hashes
+
+
 """
 Used by the system with an unpatched file upon receiving a hash blueprint of the patched file
 Receives an input stream and set of hashes for a patched file
 Returns a dictionary of checksums in the form of:
 {
-	weak : [(remote_byte, strong), (...)]             <= When a remote block has no local match
-	weak : [(remote_byte, strong, local_byte), (...)] <= When a remote block matched a local block
+	weakhash1 : {
+		stronghash1 : [block1, block2]   <= When a remote block has no local match
+		stronghash2 : (local_offset,      <= When a remote block matched a local block
+			[ block3, block4 ])
 }
 
 Example:
 {
-	3259370527 : [(2432, b'\xb7w\x9d\x1a\x1f\x89b\x84\x06[\xf48\xacl\x8a\xb6', 2427)]
-	2889812746 : [(77, b'\xc8\x83 $\xa0\x1dXKs\x1c\x80\xa2\xdaDgH')] 
+	876414430 : {b"\xf4\xdc\xc7'v\xc8L\x11G\xa5\xa2C9\x10\xbe\xce": [43]},
+	848365122 : {b'\xa8g\xa5\x16\xe5\xd7\x81\xf3\x11\xaa\x1b\xb5\x8f\xc9\xa2K': (2320, [23, 2548])}
 }
 """
-
-DEFAULT_BLOCKSIZE = 4096
-
-def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
+def zsync_delta(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
 	match = True
 	local_offset = -blocksize
 
@@ -35,43 +75,42 @@ def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
 		
 		if checksum in remote_hashes:
 			# Matched the weak hash
-			local_strong = stronghash(window).digest()
-			print(str(remote_hashes[checksum]))
-			for index,(remote_offset,remote_strong,*local_offsets) in enumerate(remote_hashes[checksum]):
-				if local_strong == remote_strong:
-					# Found a matching block, insert the local file's byte offset in the results
-					#print("Found block #"+str(remote_offset)+" at offset "+str(local_offset))
-					remote_hashes[checksum][index] = (remote_offset, local_strong, local_offset)
-					match = True
-					# Don't try to match any other blocks with this one
-					break
-
-			if datastream.closed:
-				break
+			strong = stronghash(window).digest()
+			if strong in remote_hashes[checksum]:				
+				# Matched the weak and strong hashes (block match)
+				match = True
+				
+				remote_offset = remote_hashes[checksum][strong]
+				if type(remote_offset) == list:
+					# This local block hadn't been matched to a remote block yet
+					remote_hashes[checksum][strong] = (local_offset, remote_offset)
+				# No need to check otherwise because it's a local block that already matched the remote blocks
+				#else: # tuple
+				#	# This local block was matched to a remote block already
+				#	remote_offset[1].append(local_offset)
 
 		if not match:
-			# The weakchecksum (or the strong one) did not match
-			
-			try:
-				if datastream:
+			# The current block wasn't matched
+			if datastream:
+				try:
 					# Get the next byte and affix to the window
 					newbyte = ord(datastream.read(1))
 					window.append(newbyte)
-			except TypeError:
-				# No more data from the file; the window will slowly shrink.
-				# newbyte needs to be zero from here on to keep the checksum
-				# correct.
-				newbyte = 0
-				tailsize = datastream.tell() % blocksize
-				datastream = None
+				except TypeError:
+					# No more data from the file; the window will slowly shrink.
+					# newbyte needs to be zero from here on to keep the checksum
+					# correct.
+					newbyte = 0 # Not necessary to add to the window
+					tailsize = datastream.tell() % blocksize
+					datastream = None
 
 			if datastream is None and len(window) <= tailsize:
 				# The likelihood that any blocks will match after this is
 				# nearly nil so call it quits.
 				break
 
-			# Yank off the extra byte and calculate the new window checksum
-			# This is maintaining the old contents inside the bytearray, and just adusting the offset
+			# Remove the first byte from the window and cheaply calculate 
+			# the new checksum for it using the previous checksum
 			oldbyte = window.pop(0)
 			local_offset += 1
 			checksum = adler32_roll(checksum, oldbyte, newbyte, blocksize)
@@ -80,55 +119,33 @@ def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
 	#return get_instructions(remote_hashes, num_blocks, blocksize)
 	return remote_hashes
 
+
 """
 Receives a dictionary of checksums like the output of zsync_delta
 Returns a list that represents a blueprint for patching the file and a list of block indexes missing (the output of get_instructions):
 
 """
-def get_blueprint(remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSIZE):
+def get_blueprint(remote_hashes, num_blocks, blocksize=_DEFAULT_BLOCKSIZE):
 	instructions = [None] * num_blocks
 	missing = []
 	for weak in remote_hashes:
-		for block in remote_hashes[weak]:
-			#print(str(block))
-			remote_block = block[0]
-			strong = block[1]
-			if len(block) == 2:
-				# Not found
-				instructions[remote_block] = (remote_block, weak, strong)
-				missing.append(remote_block)
-			else:
-				# Found
-				local_block = block[2]
-				instructions[remote_block] = local_block
+		for strong in remote_hashes[weak]:
+			blocks = remote_hashes[weak][strong]
+			if type(blocks) == list:
+				# Missing block, just add the checksums
+				missing.append(blocks[0])
+				for position in blocks:
+					instructions[position] = (blocks[0], weak, strong)
+					
+			else: # Tuple
+				# Local block
+				for position in blocks[1]:
+					local_offset = blocks[0]
+					instructions[position] = local_offset
 	return instructions, missing
 
-"""
-Receives a readable stream
-Returns a dictionary of weakhash : (stronghash, [indexes])
-"""
-def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
-	"""
-	Generator of (weak hash (int), strong hash(bytes)) tuples
-	for each block of the defined size for the given data stream.
-	"""
-	hashes = {}
-	read = instream.read(blocksize)
-	index = 0
 
-	while read:
-		weak = adler32(read)
-		strong = stronghash(read).digest()
-		if weak in hashes:
-			hashes[weak].append((index, strong))
-		else:
-			hashes[weak] = [(index, strong)]
-		index += 1
-		read = instream.read(blocksize)
-
-	return index,hashes
-
-def get_blocks(datastream, requests, blocksize=DEFAULT_BLOCKSIZE):
+def get_blocks(datastream, requests, blocksize=_DEFAULT_BLOCKSIZE):
 	#blocks = []
 	for index in requests:
 		offset = index*blocksize
@@ -137,42 +154,36 @@ def get_blocks(datastream, requests, blocksize=DEFAULT_BLOCKSIZE):
 		#blocks.append((offset, block))
 		yield (index, content)
 
-def merge_instructions_blocks(instructions, blocks, blocksize=DEFAULT_BLOCKSIZE):
-	for (block, content) in blocks:
-		offset = block*blocksize
-		if instructions[block][0] == offset:
-			instructions[block] = content
-	return instructions
 
 """
-This version of the patching functionality doesn't require that the full
-remote blocklist is present, only the local blocklist has to be either
-complete or None
+Receives a readable instream, a writable outstream, a list of instructions and a blocksize
+Sets outstream to the expected size with the local blocks in their positions
+WARNING: There is a remote possibility that a local block will overwrite another
+if the instream and outstream are the same
 """
-def easy_patch(instream, outstream, local_blocks, remote_blocks, blocksize=DEFAULT_BLOCKSIZE):
+def patch_local_blocks(instream, outstream, local_blocks, blocksize=_DEFAULT_BLOCKSIZE):
 	for element in local_blocks:
-		#print(str(block))
-		if isinstance(element, int) and blocksize:
+		if type(element) == int and blocksize:
 			instream.seek(element)
 			block = instream.read(blocksize)
 			outstream.write(block)
 		else:
-			outstream.seek(blocksize, 1) # Important to seek from current position (advance)
-	#print("I have "+str(len(remote_blocks))+" remote blocks")
+			# Advance 1 block from current position so the file has the correct size
+			outstream.seek(blocksize, 1)
+
+"""
+Receives a writable outstream, a list of tuples of missing blocks in the form (block, content) and a blocksize
+Sets those blocks to their expected content
+"""
+def patch_remote_blocks(outstream, remote_blocks, blocksize=_DEFAULT_BLOCKSIZE):
 	for index,block in remote_blocks:
 		if isinstance(index, int) and isinstance(block, bytes):
 			outstream.seek(index*blocksize)
 			outstream.write(block)
-
-def patchstream(instream, outstream, delta, blocksize=DEFAULT_BLOCKSIZE):
-	"""
-	Patches instream using the supplied delta and write the resulting
-	data to outstream.
-	"""
-	for element in delta:
-		if isinstance(element, int) and blocksize:
-			instream.seek(element)
-			element = instream.read(blocksize)
-		outstream.write(element)
-
+"""
+DEPRECATED I guess
+"""
+def easy_patch(instream, outstream, local_blocks, remote_blocks, blocksize=_DEFAULT_BLOCKSIZE):
+	patch_local_blocks(instream, outstream, local_blocks, blocksize)
+	patch_remote_blocks(outstream, remote_blocks, blocksize)
 
