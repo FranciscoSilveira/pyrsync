@@ -5,7 +5,10 @@ This is a fork of the `pyrsync2` package with the intention of implementing the 
 
 A lot of the work done here, and certainly the hardest one, comes from [Georgy Angelov's](https://github.com/georgyangelov/pyrsync) and [Eric Pruitt's](http://code.activestate.com/recipes/577518-rsync-algorithm/) excellent work on pyrsync. I adapted their work to implement zsync with asyncio. Also Mark Adler, creator of the [Adler32 checksum algorithm](https://en.wikipedia.org/wiki/Adler-32) who's online documentation was essential.
 ## Requirements
-The only dependencies are `hashlib` for generating the strong hash (MD5) and `aiofiles`, a library that provides non-blocking file I/O using asyncio which you can get from pip:
+The dependencies are:
+* `hashlib` for generating the strong hash (MD5) 
+* `zlib` for usage of the adler32 rolling checksum for the weak hash
+* (optional for async usage) `aiofiles`, a library that provides non-blocking file I/O using asyncio which you can get from pip:
 ```
 $ pip install aiofiles
 ```
