@@ -108,7 +108,7 @@ def synchronous_test():
 	# Patch the result file with the missing blocks
 	if verbose: print("Writing missing blocks from "+patched_file+" to "+result_file)
 	with open(result_file, "r+b") as result: # This opens the result file for updating in binary
-		zsync.patch_remote_blocks(blocks, result, remote, blocksize)
+		zsync.patch_remote_blocks(blocks, result, remote, check_hashes=True)
 
 	# Compare the results
 	if (filecmp.cmp(patched_file, result_file, shallow=False)):

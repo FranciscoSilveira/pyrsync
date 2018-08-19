@@ -25,7 +25,7 @@ def block_checksums(instream, blocksize=_DEFAULT_BLOCKSIZE):
 	offset = 0
 	while read:
 		weak = adler32(read)
-		strong = stronghash(read).digest()
+		strong = stronghash(read)
 		try:
 			hashes[weak][strong]
 		except KeyError:
@@ -72,7 +72,7 @@ def get_instructions(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
 
 		if checksum in remote_hashes:
 			# Matched the weak hash
-			strong = stronghash(window).digest()
+			strong = stronghash(window)
 			try:
 				remote_offset = remote_hashes[checksum][strong]
 				# Matched the strong hash too, so the local block matches to a remote block
@@ -157,9 +157,13 @@ Receives a list of tuples of missing blocks in the form (offset, content),
 a dictionary with remote instructions (2nd result of get_instructions) and a writable outstream
 Sets those those offsets in the outstream to their expected content according to the instructions
 """
-def patch_remote_blocks(remote_blocks, outstream, remote_instructions, blocksize=_DEFAULT_BLOCKSIZE, check_hashes=False):
+def patch_remote_blocks(remote_blocks, outstream, remote_instructions, check_hashes=False):
 	for first_offset, block in remote_blocks:
-		# TODO: Opt to check if this block's hashes match the expected hashes
-		for offset in remote_instructions[first_offset][2]:
+		# Optionally check if this block's hashes match the expected hashes
+		instruction = remote_instructions[first_offset]
+		if check_hashes and (adler32(block) != instruction[0] or stronghash(block) != instruction[1]):
+			#print(str(first_offset)+" had an error:\n"+str(adler32(block))+" != "+str(instruction[0])+" or "+str(stronghash(block))+" != "+str(instruction[1]))
+			raise Exception
+		for offset in instruction[2]:
 			outstream.seek(offset)
 			outstream.write(block)

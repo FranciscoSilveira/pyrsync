@@ -5,6 +5,8 @@ import zlib
 === HASHING ===
 """
 stronghash = hashlib.md5
+def stronghash(block):
+	return hashlib.md5(block).digest()
 _PRIME_MOD = 65521
 
 """
