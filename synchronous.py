@@ -45,29 +45,16 @@ def block_checksums(instream, blocksize=_DEFAULT_BLOCKSIZE):
 """
 Used by the system with an unpatched file upon receiving a hash blueprint of the patched file
 Receives an aiofiles input stream and set of hashes for a patched file
-Returns a dictionary of checksums in the form of:
-{
-	weakhash1 : {
-		stronghash1 : [remote_offset1, remote_offset2]   <= When a remote block has no local match
-		stronghash2 : (local_offset,                     <= When a remote block matched a local block
-			[ block3, remote_offset4 ])
-}
-
-Example:
-{
-	876414430 : {b"\xf4\xdc\xc7'v\xc8L\x11G\xa5\xa2C9\x10\xbe\xce": [43]},
-	848365122 : {b'\xa8g\xa5\x16\xe5\xd7\x81\xf3\x11\xaa\x1b\xb5\x8f\xc9\xa2K': (2320, [23, 2548])}
-}
 Returns:
 	1 - A list of tuples where the first element is the local offset and the second
-	is a list of final offsets
-	[ (0, [352, 368, 384, 400, 416, 432]) ]
+	    is a list of final offsets
+	    [ (0, [352, 368, 384, 400, 416, 432]) ]
 	2 - A dictionary where each key is a missing block's first offset and the values are
-	tuples with its (weak, strong, offsets)
-	464 : (598213681, b'\x80\xfd\xa7T[\x1f\xc3\xf7\n\xf9V\xe7\xcb\xdf3\xbf', [464, 480]) 
+	    tuples with its (weak, strong, offsets)
+	    464 : (598213681, b'\x80\xfd\xa7T[\x1f\xc3\xf7\n\xf9V\xe7\xcb\xdf3\xbf', [464, 480]) 
 The blocks needed to request can be obtained with list(remote_instructions.keys())
 """
-def zsync_delta(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
+def get_instructions(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
 	match = True
 	local_offset = -blocksize
 	local_instructions = []

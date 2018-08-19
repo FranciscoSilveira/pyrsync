@@ -1,8 +1,8 @@
 import filecmp
 import argparse
 
-unpatched_file = "tests/BABD" # "tests/loremipsum"
-patched_file = "tests/ABC" # "tests/loremipsum_modified"
+unpatched_file = "tests/loremipsum" # "tests/BABD"
+patched_file = "tests/loremipsum_modified" # "tests/ABC"
 result_file = "tests/loremipsum_result"
 blocksize = 16
 verbose = False
@@ -89,7 +89,7 @@ def synchronous_test():
 	# Get the delta
 	if verbose: print("Getting delta from "+unpatched_file)
 	with open(unpatched_file, "rb") as f:
-		local, remote = zsync.zsync_delta(f, hashes, blocksize=blocksize)
+		local, remote = zsync.get_instructions(f, hashes, blocksize=blocksize)
 	missing = list(remote.keys())
 	if very_verbose: print_instructions(local, remote, missing)
 
