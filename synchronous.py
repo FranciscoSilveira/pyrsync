@@ -82,7 +82,7 @@ def get_instructions(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
 				# After the block match we don't care about this block anymore,
 				# so remove it from the dictionary
 				del remote_hashes[checksum][strong]
-				if not len(remote_hashes[checksum].keys()):
+				if not remote_hashes[checksum]: # empty dicts evaluate to false
 					del remote_hashes[checksum]
 			except KeyError:
 				# Did not match the strong hash
@@ -156,6 +156,7 @@ def patch_local_blocks(instream, outstream, local_instructions, blocksize=_DEFAU
 Receives a list of tuples of missing blocks in the form (offset, content),
 a dictionary with remote instructions (2nd result of get_instructions) and a writable outstream
 Sets those those offsets in the outstream to their expected content according to the instructions
+If check_hashes is set to True, it will also confirm that both the weak and strong hash match the expected
 """
 def patch_remote_blocks(remote_blocks, outstream, remote_instructions, check_hashes=False):
 	for first_offset, block in remote_blocks:
