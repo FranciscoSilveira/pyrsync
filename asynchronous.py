@@ -35,6 +35,7 @@ async def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
 		if checksum in remote_hashes:
 			# Matched the weak hash
 			local_strong = hashlib.md5(window).digest()
+			print(remote_hashes[checksum])
 			for index,(remote_offset,remote_strong) in enumerate(remote_hashes[checksum]):
 				if local_strong == remote_strong:
 					# Found a matching block, insert the local file's byte offset in the results
@@ -102,11 +103,48 @@ def get_blueprint(remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSIZE):
 				instructions[remote_block] = local_block
 	return instructions, missing
 
-async def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
+"""
+Receives a readable stream
+Returns a dictionary of dictionaries, like so:
+	{ weakhash : {
+		stronghash1 : index1,
+		stronghash2 : index2
+		}
+	}
+Consider that a weakhash can have several matching stronghashes, and every
+weakhash,stronghash pair can occur on several indexes of the file,
+but we only need one index for retrieving that block
+"""
+async def block_checksums(instream, blocksize=_DEFAULT_BLOCKSIZE):
 	"""
 	Generator of (weak hash (int), strong hash(bytes)) tuples
 	for each block of the defined size for the given data stream.
 	"""
+	hashes = {}
+	read = await instream.read(blocksize) # async behaviour
+	index = 0
+
+	while read:
+		weak = adler32(read)
+		strong = stronghash(read).digest()
+		if weak in hashes:
+			if strong in hashes[weak]:
+				hashes[weak][strong].append(index)
+			else:
+				hashes[weak][strong] = [ index ]
+		else:
+			hashes[weak] = {}
+			hashes[weak][strong] = [ index ]
+		index += 1
+		read = instream.read(blocksize)
+
+	return index,hashes
+"""
+async def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
+	
+	Generator of (weak hash (int), strong hash(bytes)) tuples
+	for each block of the defined size for the given data stream.
+	
 	hashes = {}
 	read = await instream.read(blocksize)
 	index = 0
@@ -123,6 +161,7 @@ async def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
 		read = await instream.read(blocksize)
 
 	return index,hashes
+"""
 
 def rollingchecksum(removed, new, a, b, blocksize=DEFAULT_BLOCKSIZE):
 	"""

@@ -1,6 +1,9 @@
 import hashlib
 import zlib
 
+"""
+=== HASHING ===
+"""
 stronghash = hashlib.md5
 _PRIME_MOD = 65521
 

@@ -4,6 +4,15 @@
 This is a fork of the `pyrsync2` package with the intention of implementing the [zsync](http://zsync.moria.org.uk/) algorithm based on its code using asynchronous file access.
 
 A lot of the work done here, and certainly the hardest one, comes from [Georgy Angelov's](https://github.com/georgyangelov/pyrsync) and [Eric Pruitt's](http://code.activestate.com/recipes/577518-rsync-algorithm/) excellent work on pyrsync. I adapted their work to implement zsync with asyncio. Also Mark Adler, creator of the [Adler32 checksum algorithm](https://en.wikipedia.org/wiki/Adler-32) who's online documentation was essential.
+
+### FAQ
+**What is the state of the project?**
+The asynchronous behaviour doesn't work at all for now. I have to port a lot of the changes made in the synchronous version, which should be working just fine, to it.
+The usage explanation below is also wrong and will be fixed. Right now, the best guideline is the synchronous_test() in tests/simple_test.py.
+
+**Why is so much code duplicated?**
+This has to do with whether a function is a regular python function or an asyncio coroutine. Inside those almost-equal functions, the I/O differs between regular or a call to a coroutine (`file.read(size)` vs `await file.read(size)`). The only way to call a coroutine is inside another coroutine, so I can't just get away with something like an if/else to choose which one to call - in order to even call the asynchronous I/O, the caller itself has to be a coroutine defined with `async def`, which obviously you wouldn't want for regular I/O. So this way the asnchronous and synchronous versions get separated.
+
 ## Requirements
 The dependencies are:
 * `hashlib` for generating the strong hash (MD5) 
