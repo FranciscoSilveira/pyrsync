@@ -58,10 +58,19 @@ Example:
 	876414430 : {b"\xf4\xdc\xc7'v\xc8L\x11G\xa5\xa2C9\x10\xbe\xce": [43]},
 	848365122 : {b'\xa8g\xa5\x16\xe5\xd7\x81\xf3\x11\xaa\x1b\xb5\x8f\xc9\xa2K': (2320, [23, 2548])}
 }
+Returns:
+	1 - A list of tuples where the first element is the local offset and the second
+	is a list of final offsets
+	[ (0, [352, 368, 384, 400, 416, 432]) ]
+	2 - A dictionary where each key is a missing block's first offset and the values are
+	tuples with its (weak, strong, offsets)
+	464 : (598213681, b'\x80\xfd\xa7T[\x1f\xc3\xf7\n\xf9V\xe7\xcb\xdf3\xbf', [464, 480]) 
+The blocks needed to request can be obtained with list(remote_instructions.keys())
 """
 def zsync_delta(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
 	match = True
 	local_offset = -blocksize
+	local_instructions = []
 
 	while True:
 		if match and datastream is not None:
@@ -81,10 +90,13 @@ def zsync_delta(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
 				remote_offset = remote_hashes[checksum][strong]
 				# Matched the strong hash too, so the local block matches to a remote block
 				match = True
-				if isinstance(remote_offset, list):
-					# This local block hasn't been matched to a remote block yet
-					remote_hashes[checksum][strong] = (local_offset, remote_offset)
-				# If it's not a list, then we had already found a block match
+				local_instructions.append((local_offset, remote_offset))
+
+				# After the block match we don't care about this block anymore,
+				# so remove it from the dictionary
+				del remote_hashes[checksum][strong]
+				if not len(remote_hashes[checksum].keys()):
+					del remote_hashes[checksum]
 			except KeyError:
 				# Did not match the strong hash
 				pass
@@ -114,35 +126,13 @@ def zsync_delta(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
 			local_offset += 1
 			checksum = adler32_roll(checksum, oldbyte, newbyte, blocksize)
 
-	return remote_hashes
+	# Now put the block offsets in a dictionary where the key is the first offset
+	remote_instructions = { offsets[0] : (weak, strong, offsets)
+		for weak, strongs in remote_hashes.items()
+		for strong, offsets in strongs.items() }
 
-
-"""
-Receives a dictionary of checksums like the output of zsync_delta
-Returns:
-	1 - A list of tuples where the first element is the local offset and the second
-	is a list of final offsets
-	[ (0, [352, 368, 384, 400, 416, 432]) ]
-	2 - A dictionary where each key is a missing block's offset and the values are all
-	the final offsets for that block (including the key)
-	{ 496 : (524157877, b'\xa9I\x07\x06\x84\x88\x18I\r{\xdcD\xa1\x16f\x10', [496]) } 
-The blocks needed to request can be obtained with list(remote_instructions.keys())
-"""
-def get_instructions(delta):
-	local_instructions = []
-	remote_instructions = {}
-	for weak in delta:
-		for strong in delta[weak]:
-			block = delta[weak][strong]
-			if isinstance(block, list):
-				# Missing block, just add the hashes and positions
-				remote_instructions[ block[0] ] = (weak, strong, block)
-			else:
-				# Tuple, this block exists on the local file
-				local_instructions.append(block)
-	# This avoid problems of overwriting blocks
-	# local_instructions.sort(key=lambda x: x[0])
 	return local_instructions, remote_instructions
+
 
 """
 ! This function is a generator !
