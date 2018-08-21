@@ -4,7 +4,6 @@ import zlib
 """
 === HASHING ===
 """
-stronghash = hashlib.md5
 def stronghash(block):
 	return hashlib.md5(block).digest()
 _PRIME_MOD = 65521
@@ -18,7 +17,7 @@ def adler32_roll(checksum, removed, added, blocksize):
 	b = (checksum >> 16) & 0xffff
 	a += added - removed % _PRIME_MOD
 	b += a - 1 - (removed * blocksize) % _PRIME_MOD
-	return (b << 16) | a #, a, b
+	return (b << 16) | a
 
 """
 Receives a bytearray "data"
@@ -28,9 +27,52 @@ https://en.wikipedia.org/wiki/Adler-32
 def adler32(data):
 	return zlib.adler32(data)
 	checksum = zlib.adler32(data)
-	a = checksum & 0xffff
-	b = (checksum >> 16) & 0xffff
-	return (b << 16) | a, a, b
+	#a = checksum & 0xffff
+	#b = (checksum >> 16) & 0xffff
+	#return (b << 16) | a, a, b
+
+
+"""
+=== TOOLS ===
+"""
+"""
+1 - no weak
+2 - weak, no strong
+3 - weak and strong, new offset
+"""
+def populate_block_checksums(block, hashes, offset):
+	weak = adler32(block)
+	strong = stronghash(block)
+
+	try:
+		hashes[weak][strong].append(offset) # 3
+	except KeyError:
+		try:
+			hashes[weak][strong] = [offset] # 2
+		except KeyError:
+			hashes[weak] = {strong: [offset]} # 1
+
+
+def check_block(block, checksum, hashes, local_instructions, local_offset):
+	match = False
+	if checksum in hashes:
+		# Matched the weak hash
+		print("matched something")
+		strong = stronghash(block)
+		try:
+			remote_offset = hashes[checksum][strong]
+			# Matched the strong hash too, so the local block matches to a remote block
+			match = True
+			local_instructions.append((local_offset, remote_offset))
+			# After the block match we don't care about this block anymore,
+			# so remove it from the dictionary
+			del hashes[checksum][strong]
+			if not hashes[checksum]:  # empty dicts evaluate to false
+				del hashes[checksum]
+		except KeyError:
+			# Did not match the strong hash
+			pass
+	return match
 
 """
 A small test using a paragraph of Lorem Ipsum

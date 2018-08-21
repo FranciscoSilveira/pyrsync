@@ -1,235 +1,143 @@
-import hashlib
+import common
+
+_DEFAULT_BLOCKSIZE = 4096
+
+
+"""
+Receives a readable stream
+Returns
+	1 - The total number of blocks,
+	2 - A dictionary of dictionaries, like so:
+	{ weakhash : {
+		stronghash1 : [ offset1, offset3, ... ]
+		stronghash2 : [ offset2 ]
+		}
+	}
+Consider that a weak hash can have several matching strong hashes, and every
+(weak hash, strong hash) block pair can occur on several parts of the file,
+but we only need one offset for retrieving that block
+"""
+async def block_checksums(instream, blocksize=_DEFAULT_BLOCKSIZE):
+	hashes = {}
+	block = await instream.read(blocksize)
+	offset = 0
+
+	while block:
+		common.populate_block_checksums(block, hashes, offset)
+		offset += blocksize
+		block = await instream.read(blocksize)
+
+	return offset/blocksize, hashes
+
 
 """
 Used by the system with an unpatched file upon receiving a hash blueprint of the patched file
-Receives an input stream and set of hashes for a patched file
-Returns a dictionary of checksums in the form of:
-{
-	weak : [(remote_byte, strong), (...)]             <= When a remote block has no local match
-	weak : [(remote_byte, strong, local_byte), (...)] <= When a remote block matched a local block
-}
-
-Example:
-{
-	824247642 : {b'\x8a\xb5+|\xc1\xf0\x8bB\xcc\xe1\xddP\xdb\xde\xb1Y': 1680}
-	848365122 : {b'\xa8g\xa5\x16\xe5\xd7\x81\xf3\x11\xaa\x1b\xb5\x8f\xc9\xa2K': (2320, [23, 2548])}
-}
+Receives an aiofiles input stream and set of hashes for a patched file
+Returns:
+	1 - A list of tuples where the first element is the local offset and the second
+	    is a list of final offsets
+	    [ (0, [352, 368, 384, 400, 416, 432]) ]
+	2 - A dictionary where each key is a missing block's first offset and the values are
+	    tuples with its (weak, strong, offsets)
+	    464 : (598213681, b'\x80\xfd\xa7T[\x1f\xc3\xf7\n\xf9V\xe7\xcb\xdf3\xbf', [464, 480]) 
+The blocks needed to request can be obtained with list(remote_instructions.keys())
 """
-DEFAULT_BLOCKSIZE = 4096
 
-async def zsync_delta(datastream, remote_hashes, blocksize=DEFAULT_BLOCKSIZE):
+
+async def get_instructions(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
 	match = True
 	local_offset = -blocksize
+	local_instructions = []
 
 	while True:
 		if match and datastream is not None:
 			# Whenever there is a match or the loop is running for the first
 			# time, populate the window using weakchecksum instead of rolling
 			# through every single byte which takes at least twice as long.
-			window = bytearray(await datastream.read(blocksize))
+			block = bytearray(await datastream.read(blocksize))
 			local_offset += blocksize
-			checksum, a, b = weakchecksum(window)
-		
-		match = False
-		
-		if checksum in remote_hashes:
-			# Matched the weak hash
-			local_strong = hashlib.md5(window).digest()
-			print(remote_hashes[checksum])
-			for index,(remote_offset,remote_strong) in enumerate(remote_hashes[checksum]):
-				if local_strong == remote_strong:
-					# Found a matching block, insert the local file's byte offset in the results
-					#print("Found block #"+str(remote_offset)+" at offset "+str(local_offset))
-					remote_hashes[checksum][index] = (remote_offset, local_strong, local_offset)
-					match = True
-					# Don't try to match any other blocks with this one
-					break
+			checksum = common.adler32(block)
+		#match = False
 
-			if datastream.closed:
-				break
+		match = common.check_block(block, checksum, remote_hashes, local_instructions, local_offset)
 
 		if not match:
-			# The weakchecksum (or the strong one) did not match
-			
-			try:
-				if datastream:
+			# The current block wasn't matched
+			if datastream:
+				try:
 					# Get the next byte and affix to the window
-					next = await datastream.read(1)
-					newbyte = ord(next)
-					window.append(newbyte)
-			except TypeError:
-				# No more data from the file; the window will slowly shrink.
-				# newbyte needs to be zero from here on to keep the checksum
-				# correct.
-				newbyte = 0
-				tailsize = await datastream.tell() % blocksize
-				datastream = None
+					newbyte = ord(await datastream.read(1))
+					block.append(newbyte)
+				except TypeError:
+					# No more data from the file; the window will slowly shrink.
+					# "newbyte" needs to be zero from here on to keep the checksum correct.
+					newbyte = 0  # Not necessary to add to the window
+					tailsize = await datastream.tell() % blocksize
+					datastream = None
 
-			if datastream is None and len(window) <= tailsize:
+			if datastream is None and len(block) <= tailsize:
 				# The likelihood that any blocks will match after this is
 				# nearly nil so call it quits.
 				break
 
-			# Yank off the extra byte and calculate the new window checksum
-			# This is maintaining the old contents inside the bytearray, and just adusting the offset
-			oldbyte = window.pop(0)
+			# Remove the first byte from the window and cheaply calculate
+			# the new checksum for it using the previous checksum
+			oldbyte = block.pop(0)
 			local_offset += 1
-			checksum, a, b = rollingchecksum(oldbyte, newbyte, a, b, blocksize)
-	
-	# Order the results into a proper blueprint+requestlist tuple and return it
-	#return get_instructions(remote_hashes, num_blocks, blocksize)
-	return remote_hashes
+			checksum = common.adler32_roll(checksum, oldbyte, newbyte, blocksize)
+
+	# Now put the block offsets in a dictionary where the key is the first offset
+	remote_instructions = {offsets[0]: (weak, strong, offsets)
+						   for weak, strongs in remote_hashes.items()
+						   for strong, offsets in strongs.items()}
+
+	return local_instructions, remote_instructions
+
 
 """
-Receives a dictionary of checksums like the output of zsync_delta
-Returns a list that represents a blueprint for patching the file and a list of block indexes missing (the output of get_instructions):
+! This function is a generator !
+Receives an instream and a list of offsets
+Yields the blocks in that instream at those offsets
+"""
+async def get_blocks(datastream, requests, blocksize=_DEFAULT_BLOCKSIZE):
+	for offset in requests:
+		await datastream.seek(offset)
+		content = await datastream.read(blocksize)
+		yield (offset, content)
+
 
 """
-def get_blueprint(remote_hashes, num_blocks, blocksize=DEFAULT_BLOCKSIZE):
-	instructions = [None] * num_blocks
-	missing = []
-	for weak in remote_hashes:
-		for block in remote_hashes[weak]:
-			#print(str(block))
-			remote_block = block[0]
-			strong = block[1]
-			if len(block) == 2:
-				# Not found
-				instructions[remote_block] = (remote_block, weak, strong)
-				missing.append(remote_block)
-			else:
-				# Found
-				local_block = block[2]
-				instructions[remote_block] = local_block
-	return instructions, missing
+Receives a readable instream, a writable outstream, a list of instructions and a blocksize
+Sets outstream to the expected size with the blocks from instream in their positions according to the blueprint
+WARNING: There is a possibility that a local block will overwrite another
+if the instream and outstream are the same. Avoid this by using different streams.
+"""
+async def patch_local_blocks(instream, outstream, local_instructions, blocksize=_DEFAULT_BLOCKSIZE):
+	for instruction in local_instructions:
+		local_offset = instruction[0]
+		final_offsets = instruction[1]
+
+		await instream.seek(local_offset)
+		block = await instream.read(blocksize)
+
+		for offset in final_offsets:
+			await outstream.seek(offset)
+			await outstream.write(block)
+
 
 """
-Receives a readable stream
-Returns a dictionary of dictionaries, like so:
-	{ weakhash : {
-		stronghash1 : index1,
-		stronghash2 : index2
-		}
-	}
-Consider that a weakhash can have several matching stronghashes, and every
-weakhash,stronghash pair can occur on several indexes of the file,
-but we only need one index for retrieving that block
+Receives a list of tuples of missing blocks in the form (offset, content),
+a dictionary with remote instructions (2nd result of get_instructions) and a writable outstream
+Sets those those offsets in the outstream to their expected content according to the instructions
+If check_hashes is set to True, it will also confirm that both the weak and strong hash match the expected
 """
-async def block_checksums(instream, blocksize=_DEFAULT_BLOCKSIZE):
-	"""
-	Generator of (weak hash (int), strong hash(bytes)) tuples
-	for each block of the defined size for the given data stream.
-	"""
-	hashes = {}
-	read = await instream.read(blocksize) # async behaviour
-	index = 0
-
-	while read:
-		weak = adler32(read)
-		strong = stronghash(read).digest()
-		if weak in hashes:
-			if strong in hashes[weak]:
-				hashes[weak][strong].append(index)
-			else:
-				hashes[weak][strong] = [ index ]
-		else:
-			hashes[weak] = {}
-			hashes[weak][strong] = [ index ]
-		index += 1
-		read = instream.read(blocksize)
-
-	return index,hashes
-"""
-async def block_checksums(instream, blocksize=DEFAULT_BLOCKSIZE):
-	
-	Generator of (weak hash (int), strong hash(bytes)) tuples
-	for each block of the defined size for the given data stream.
-	
-	hashes = {}
-	read = await instream.read(blocksize)
-	index = 0
-
-	while read:
-		weak = weakchecksum(read)[0]
-		strong = hashlib.md5(read).digest()
-		if weak in hashes:
-			hashes[weak].append((index, strong))
-		else:
-			hashes[weak] = [(index, strong)]
-		#yield (weakchecksum(read)[0], hashlib.md5(read).digest())
-		index += 1
-		read = await instream.read(blocksize)
-
-	return index,hashes
-"""
-
-def rollingchecksum(removed, new, a, b, blocksize=DEFAULT_BLOCKSIZE):
-	"""
-	Generates a new weak checksum when supplied with the internal state
-	of the checksum calculation for the previous window, the removed
-	byte, and the added byte.
-	"""
-	a -= removed - new
-	b -= removed * blocksize - a
-	return (b << 16) | a, a, b
-
-def get_blocks(datastream, requests, blocksize=DEFAULT_BLOCKSIZE):
-	#blocks = []
-	for index in requests:
-		offset = index*blocksize
-		datastream.seek(offset)
-		content = datastream.read(blocksize)
-		#blocks.append((offset, block))
-		yield (index, content)
-
-def merge_instructions_blocks(instructions, blocks, blocksize=DEFAULT_BLOCKSIZE):
-	for (block, content) in blocks:
-		offset = block*blocksize
-		if instructions[block][0] == offset:
-			instructions[block] = content
-	return instructions
-
-"""
-This version of the patching functionality doesn't require that the full
-remote blocklist is present, only the local blocklist has to be either
-complete or None
-"""
-def easy_patch(instream, outstream, local_blocks, remote_blocks, blocksize=DEFAULT_BLOCKSIZE):
-	if local_blocks:
-		for element in local_blocks:
-			#print(str(block))
-			if isinstance(element, int) and blocksize:
-				instream.seek(element)
-				block = instream.read(blocksize)
-				outstream.write(block)
-			else:
-				outstream.seek(blocksize, 1) # Important to seek from current position (advance)
-	#print("I have "+str(len(remote_blocks))+" remote blocks")
-	if remote_blocks:
-		for index,block in remote_blocks:
-			if isinstance(index, int) and isinstance(block, bytes):
-				outstream.seek(index*blocksize)
-				outstream.write(block)
-
-def patchstream(instream, outstream, delta, blocksize=DEFAULT_BLOCKSIZE):
-	"""
-	Patches instream using the supplied delta and write the resulting
-	data to outstream.
-	"""
-	for element in delta:
-		if isinstance(element, int) and blocksize:
-			instream.seek(element)
-			element = instream.read(blocksize)
-		outstream.write(element)
-
-def weakchecksum(data):
-	"""
-	Generates a weak checksum from an iterable set of bytes.
-	"""
-	a = b = 0
-	l = len(data)
-	for i in range(l):
-		a += data[i]
-		b += (l - i) * data[i]
-
-	return (b << 16) | a, a, b
+async def patch_remote_blocks(remote_blocks, outstream, remote_instructions, check_hashes=False):
+	for first_offset, block in remote_blocks:
+		# Optionally check if this block's hashes match the expected hashes
+		instruction = remote_instructions[first_offset]
+		if check_hashes and (common.adler32(block) != instruction[0] or common.stronghash(block) != instruction[1]):
+			#print(str(first_offset)+" had an error:\n"+str(common.adler32(block))+" != "+str(instruction[0])+" or "+str(common.stronghash(block))+" != "+str(instruction[1]))
+			raise Exception
+		for offset in instruction[2]:
+			await outstream.seek(offset)
+			await outstream.write(block)

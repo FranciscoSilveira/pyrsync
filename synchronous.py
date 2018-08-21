@@ -1,4 +1,4 @@
-from zsync_hashing import adler32, adler32_roll, stronghash
+import common
 
 _DEFAULT_BLOCKSIZE = 4096
 
@@ -16,16 +16,12 @@ Consider that a weak hash can have several matching strong hashes, and every
 but we only need one offset for retrieving that block
 """
 def block_checksums(instream, blocksize=_DEFAULT_BLOCKSIZE):
-	"""
-	Generator of (weak hash (int), strong hash(bytes)) tuples
-	for each block of the defined size for the given data stream.
-	"""
 	hashes = {}
-	read = instream.read(blocksize)
+	block = instream.read(blocksize)
 	offset = 0
-	while read:
-		weak = adler32(read)
-		strong = stronghash(read)
+	while block:
+		weak = common.adler32(block)
+		strong = common.stronghash(block)
 		try:
 			hashes[weak][strong]
 		except KeyError:
@@ -37,7 +33,7 @@ def block_checksums(instream, blocksize=_DEFAULT_BLOCKSIZE):
 			hashes[weak][strong] = [offset]
 
 		offset += blocksize
-		read = instream.read(blocksize)
+		block = instream.read(blocksize)
 
 	return offset/blocksize,hashes
 
@@ -66,13 +62,12 @@ def get_instructions(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
 			# through every single byte which takes at least twice as long.
 			window = bytearray(datastream.read(blocksize))
 			local_offset += blocksize
-			checksum = adler32(window)
-		
-		match = False
+			checksum = common.adler32(window)
+			match = False
 
 		if checksum in remote_hashes:
 			# Matched the weak hash
-			strong = stronghash(window)
+			strong = common.stronghash(window)
 			try:
 				remote_offset = remote_hashes[checksum][strong]
 				# Matched the strong hash too, so the local block matches to a remote block
@@ -111,7 +106,7 @@ def get_instructions(datastream, remote_hashes, blocksize=_DEFAULT_BLOCKSIZE):
 			# the new checksum for it using the previous checksum
 			oldbyte = window.pop(0)
 			local_offset += 1
-			checksum = adler32_roll(checksum, oldbyte, newbyte, blocksize)
+			checksum = common.adler32_roll(checksum, oldbyte, newbyte, blocksize)
 
 	# Now put the block offsets in a dictionary where the key is the first offset
 	remote_instructions = { offsets[0] : (weak, strong, offsets)
@@ -162,8 +157,8 @@ def patch_remote_blocks(remote_blocks, outstream, remote_instructions, check_has
 	for first_offset, block in remote_blocks:
 		# Optionally check if this block's hashes match the expected hashes
 		instruction = remote_instructions[first_offset]
-		if check_hashes and (adler32(block) != instruction[0] or stronghash(block) != instruction[1]):
-			#print(str(first_offset)+" had an error:\n"+str(adler32(block))+" != "+str(instruction[0])+" or "+str(stronghash(block))+" != "+str(instruction[1]))
+		if check_hashes and (common.adler32(block) != instruction[0] or common.stronghash(block) != instruction[1]):
+			#print(str(first_offset)+" had an error:\n"+str(common.adler32(block))+" != "+str(instruction[0])+" or "+str(common.stronghash(block))+" != "+str(instruction[1]))
 			raise Exception
 		for offset in instruction[2]:
 			outstream.seek(offset)
